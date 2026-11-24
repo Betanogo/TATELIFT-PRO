@@ -90,10 +90,12 @@ function openCam(){
 }
 function closeCam(fromPop){
   setPane(paneW(),true); document.body.classList.remove('pro-cam-open');
-  if(open){ open=false; if(!fromPop&&history.state&&history.state.proCam) history.back(); }
+  if(open){ open=false; if(!fromPop&&history.state&&history.state.proCam){ swallowPop=true; history.back(); } }
   settle();
 }
-addEventListener('popstate',()=>{
+let swallowPop=false;   // our own history.back() when closing the detector/sheet: don't let the tracker treat it as 'back' (it would close the set detail)
+addEventListener('popstate',e=>{
+  if(swallowPop){ swallowPop=false; e.stopImmediatePropagation(); return; }
   if($('pro-sheet').classList.contains('open')){ closeSheet(true); return; }
   if(open){   // back while on the detector: let it step back first (result → home), and leave only from its home
     history.pushState({proCam:true},'');
@@ -180,7 +182,7 @@ async function showDetClip(ex){
         pushUndo(); ex.clips=list.filter((_,j)=>j!==i); autoSave(); renderProgram(); sendCtx(); showDetClip(ex);
       });
     };
-    const c=list[i], blob=await clipDB.get('clip:'+c.t);
+    const c=list[i]; box.dataset.t=c.t; const blob=await clipDB.get('clip:'+c.t);
     if(currentDetailEx&&currentDetailEx.ex!==ex) return;
     if(detURL){ URL.revokeObjectURL(detURL); detURL=null; }
     const lbl=(c.set?`세트 ${c.set} · `:'')+(c.kg?fmtW(c.kg):'')+(c.reps?` × ${c.reps}`:'');
@@ -217,7 +219,7 @@ function openSheet(m){
 }
 function closeSheet(fromPop){
   $('pro-sheet').classList.remove('open');
-  if(!fromPop&&history.state&&history.state.proSheet) history.back();
+  if(!fromPop&&history.state&&history.state.proSheet){ swallowPop=true; history.back(); }
 }
 function renderSheet(){
   const {m}=sheetData, days=allDays(), x=days[sheetData.dayIdx];
@@ -272,7 +274,15 @@ $('pro-dots').children[1].onclick=()=>{ if(!open) openCam(); };
 updateDots();
 $('pro-sheet').addEventListener('click',e=>{ if(e.target.id==='pro-sheet') closeSheet(); });
 $('pro-install').onclick=async()=>{ if(!installEvt) return; installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt=null; $('pro-install').style.display='none'; };
-$('det-clip-v').addEventListener('click',e=>{ const v=e.currentTarget; if(!v.controls){ v.controls=true; e.preventDefault(); } });
+// tap the video (or the link under it) → this set's full analysis in the RPE Detector; swipe back returns here
+function showInDetector(){
+  const t=+$('det-clip').dataset.t; if(!t) return;
+  ensureFrame(); openCam();
+  const go=()=>frame.contentWindow.postMessage({type:'tlpro-show',time:t},location.origin);
+  if(ready) go(); else { const w=e=>{ if(e.data&&e.data.type==='tlpro-ready'){ removeEventListener('message',w); setTimeout(go,50); } }; addEventListener('message',w); }
+}
+$('det-clip-v').addEventListener('click',showInDetector);
+$('det-clip-link').addEventListener('click',showInDetector);
 // ☰ menu: a drawer that slides in from the left with every page + settings
 { const btn=$('btn-settings'), TITLE={program:'Program',stats:'PRs',rpe:'RPE Chart',log:'Log',calendar:'Calendar'};
   const isOpen=()=>document.body.classList.contains('drawer-open');

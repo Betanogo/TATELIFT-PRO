@@ -446,6 +446,7 @@ body{padding-top:calc(54px + env(safe-area-inset-top))}
 .det-clip .det-section-title{display:flex;align-items:center;justify-content:space-between;gap:6px}
 .det-clip video{width:100%;aspect-ratio:9/16;object-fit:cover;background:#000;display:block;cursor:pointer}
 .det-clip-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;font-size:12px;font-weight:700;color:var(--text2)}
+#det-clip-link{display:block;padding:0 10px 10px;font-size:12px;font-weight:800;color:var(--acc);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 #det-clip-del{border:1px solid var(--border);background:var(--s2);color:var(--danger);font:700 11px var(--fb);padding:5px 9px;border-radius:7px;cursor:pointer}
 #det-clip-tabs{display:flex;gap:4px}#det-clip-tabs button{min-width:26px;height:22px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--text2);font:700 10px var(--fb);letter-spacing:0;padding:0 5px}#det-clip-tabs button.on{background:var(--acc-dim);color:var(--acc);border-color:var(--acc)}
 .det-note-sec{flex:1;display:flex;flex-direction:column}
@@ -718,6 +719,7 @@ body.drawer-open #drawer{transform:none}body.drawer-open #drawer-bg{opacity:1;po
         <div class="det-section-title">Video<span id="det-clip-tabs"></span></div>
         <video id="det-clip-v" muted loop playsinline></video>
         <div class="det-clip-meta"><span id="det-clip-msg"></span><button id="det-clip-del">영상 빼기</button></div>
+        <a id="det-clip-link" role="button">RPE Detector에서 자세히 보기 →</a>
       </div>
       <div class="det-section det-note-sec">
         <div class="det-section-title">Notes</div>

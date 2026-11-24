@@ -1769,7 +1769,17 @@ if(PRO){
   // (they would mix with the tracker's), and the parent asks us to step back with 'tlpro-back'.
   try{ history.pushState=function(){}; history.replaceState=function(){}; }catch(e){}
   addEventListener('message',e=>{
-    if(e.origin!==location.origin||!e.data||e.data.type!=='tlpro-back') return;
+    if(e.origin!==location.origin||!e.data) return;
+    if(e.data.type==='tlpro-show'){   // the tracker's set detail asked for this set's full analysis
+      const st=setHistory.find(x=>x.time===e.data.time);
+      if(!st){ toast('이 세트의 분석 기록이 이 폰에 없어요'); return; }
+      if(mode==='analyze'||mode==='export') return;
+      if(mode==='edit'||mode==='replay'){ try{ video.pause(); }catch(x){} }
+      openResult({entry:st,reps:st.repsData||[],fails:st.failsData||[],live:false});
+      try{ document.querySelector('#view-result .scroll').scrollTop=0; }catch(x){}
+      return;
+    }
+    if(e.data.type!=='tlpro-back') return;
     if($('#settings-bg').classList.contains('open')){ $('#settings-bg').classList.remove('open'); renderHome(); return; }
     if(mode==='analyze'){ cancelAnalysis(); toast('분석을 취소했어요'); return; }
     if(mode==='export'||mode==='export-done'){ toast('영상 저장 중이에요 — 끝나면 결과 화면으로 돌아가요'); return; }
