@@ -1594,7 +1594,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('btn-reset-all')?.addEventListener('click',()=>confirmAction('Reset ALL data?','Cannot be undone.',()=>{localStorage.clear();location.reload();}));
 
   // Nav
-  document.querySelectorAll('.nav-tab').forEach(tab=>{
+  document.querySelectorAll('.nav-tab[data-page]').forEach(tab=>{
     tab.addEventListener('click',()=>{
       document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
       document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));

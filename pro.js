@@ -146,13 +146,27 @@ $('pro-fab').onclick=openCam;
 $('pro-cam-close').onclick=()=>closeCam();
 $('pro-sheet').addEventListener('click',e=>{ if(e.target.id==='pro-sheet') closeSheet(); });
 $('pro-install').onclick=async()=>{ if(!installEvt) return; installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt=null; $('pro-install').style.display='none'; };
-// menu (☰) opens settings; pressing it again goes back to the tab you were on
-{ let lastTab='program'; const btn=$('btn-settings');
-  document.querySelectorAll('#subnav .nav-tab').forEach(t=>t.addEventListener('click',()=>{ lastTab=t.dataset.page; btn.classList.remove('on'); t.scrollIntoView({inline:'nearest',block:'nearest'}); }));
-  btn.addEventListener('click',e=>{
-    if(btn.classList.contains('on')){ e.stopImmediatePropagation(); btn.classList.remove('on'); document.querySelector(`#subnav .nav-tab[data-page="${lastTab}"]`)?.click(); return; }
-    btn.classList.add('on');
-  },true);
+// ☰ menu: a drawer that slides in from the left with every page + settings
+{ const btn=$('btn-settings'), TITLE={program:'Program',stats:'PRs',rpe:'RPE Chart',log:'Log',calendar:'Calendar'};
+  const isOpen=()=>document.body.classList.contains('drawer-open');
+  const openDr=()=>{ if(isOpen()) return; document.body.classList.add('drawer-open'); $('drawer').setAttribute('aria-hidden','false'); history.pushState({drawer:true},''); };
+  const closeDr=fromPop=>{ if(!isOpen()) return; document.body.classList.remove('drawer-open'); $('drawer').setAttribute('aria-hidden','true'); if(!fromPop&&history.state&&history.state.drawer) history.back(); };
+  btn.addEventListener('click',e=>{ e.stopImmediatePropagation(); isOpen()?closeDr():openDr(); },true);
+  $('drawer-bg').onclick=()=>closeDr();
+  document.querySelectorAll('#subnav .nav-tab[data-page]').forEach(t=>t.addEventListener('click',()=>{ $('nav-title').textContent=TITLE[t.dataset.page]||''; closeDr(); }));
+  $('dr-settings').onclick=()=>{
+    document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    $('page-settings')?.classList.add('active'); $('dr-settings').classList.add('active'); $('nav-title').textContent='Settings'; closeDr();
+  };
+  $('dr-cam').onclick=()=>{
+    if(history.state&&history.state.drawer){ addEventListener('popstate',()=>setTimeout(openCam,0),{once:true}); closeDr(); }
+    else { closeDr(true); openCam(); }
+  };
+  addEventListener('popstate',()=>{ if(isOpen()) closeDr(true); });
+  // swipe left on the drawer to close it
+  let sx=null; $('drawer').addEventListener('touchstart',e=>{ sx=e.touches[0].clientX; },{passive:true});
+  $('drawer').addEventListener('touchend',e=>{ if(sx!=null&&e.changedTouches[0].clientX-sx<-50) closeDr(); sx=null; });
 }
 window.TLPRO={liftOf,openCam,openSheet,todayDay};   // for testing
 })();
