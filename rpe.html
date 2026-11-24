@@ -36,6 +36,15 @@ button{font-family:inherit;color:inherit;}
 .pro-today b{color:var(--text)}.pro-today .pt-h{font-size:11px;letter-spacing:.08em;color:var(--acc);font-weight:800;margin-bottom:4px}
 .pro-box .pro-big{display:flex;align-items:baseline;gap:8px;margin:2px 0 6px}.pro-box .pro-big b{font-size:28px;color:var(--text);font-variant-numeric:tabular-nums}
 .pro-box .pro-warn{color:#ff9f43;margin-top:6px}
+.att-now{margin-bottom:10px;color:var(--text)}
+.att-list{display:flex;flex-direction:column;gap:6px}
+.att-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--s2);border:1px solid var(--border)}
+.att-row.rec{border-color:var(--acc)}
+.att-n{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.att-n b{color:var(--text);font-size:14px}.att-n span{font-size:12px;color:var(--text2)}
+.att-sets{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end;max-width:55%}
+.att-set{min-width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--s1);color:var(--text);font:800 13px var(--fb);cursor:pointer}
+.att-set.on{background:var(--acc);border-color:var(--acc);color:#000}.att-set.taken{color:var(--text3);border-style:dashed}
+.att-sm{margin-top:10px;width:100%}
 .pro-cal{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}.pro-cal summary{cursor:pointer;font-weight:800;color:var(--text)}
 .pro-cal-row{display:flex;align-items:center;gap:6px}.pro-cal-row input{flex:1;min-width:0;background:var(--s2);border:1px solid var(--border);border-radius:10px;color:var(--text);font:700 15px var(--fb);padding:10px}.pro-cal-row span{color:var(--text3)}.pro-box .btn-main{margin-top:12px;width:100%}
 .icon-btn{width:40px;height:40px;border-radius:12px;border:1px solid var(--border);background:var(--s1);color:var(--text2);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
@@ -309,6 +318,7 @@ html.pro #view-home .scroll,html.pro #view-result .scroll{padding-bottom:calc(56
     <div class="ai-box" id="res-ai-box"><span class="muted">—</span></div>
     <div class="sec-h"><h3>실제 체감 RPE는?</h3><span>트래커가 학습해요</span></div>
     <div class="chips" id="res-chips"></div>
+    <div id="att-sec" style="display:none"><div class="sec-h"><h3>어느 세트에 넣을까요?</h3><span id="att-day"></span></div><div class="ai-box att-box" id="att-box"></div></div>
     <div class="res-actions">
       <button class="btn-main" id="res-export">🎬 영상 저장 (MP4)</button>
       <button class="btn-ghost" id="res-replay">▶ 오버레이로 재생 (폰 화면 녹화용)</button>
@@ -1269,7 +1279,6 @@ function finishAnalysis(){
     rpe:fails.length?10:Math.max(...reps.map(r=>r.rpe)),slowMcv:hardest?hardest.vAdj:null,ai:null,you:null,time:Date.now(),
     file:fileName,comp:segComp,repsData:reps.map(stripRep),failsData:fails.map(f=>({...f}))};
   setHistory.push(entry); saveSets();
-  if(PRO&&entry.wkg) parent.postMessage({type:'tlpro-set',lift:entry.lift,wkg:entry.wkg,reps:entry.reps,time:entry.time},location.origin);
   curSetData={entry,reps:entry.repsData,fails:entry.failsData,seg,live:true};
   const clipDone=saveClip(entry);
   openResult(curSetData);
@@ -1448,7 +1457,7 @@ function openResult(d){
     tr.innerHTML=`<td>✕</td><td colspan="4">FAIL — 바가 ${f.pct}% 지점에서 멈췄어요</td><td>10</td>`;
     tb.appendChild(tr);
   });
-  renderComp(d); renderPro(d);
+  renderComp(d); renderPro(d); renderAttach(d);
   if(entry.aiOut) showAI(entry,entry.aiOut,true);
   else $('#res-ai-box').innerHTML=d.live&&cfg.ai&&cfg.worker?'<span class="spinner"></span><span class="muted">Claude가 세트를 분석하는 중…</span>':'<span class="muted">'+(cfg.ai&&cfg.worker?'AI 분석 결과가 없어요.':'설정에서 AI 세트 분석을 켜고 Worker URL을 넣으면 분석이 표시돼요.')+'</span>';
   const chips=$('#res-chips'); chips.innerHTML='';
@@ -1711,6 +1720,42 @@ function renderPro(d){
   };
   const dl=$('#pc-del'); if(dl) dl.onclick=()=>{ const all=lvStore.get(); all[entry.lift]=(all[entry.lift]||[]).filter(x=>x.t!==entry.time); lvStore.set(all); renderPro(d); };
 }
+// pick which set of today's program this clip belongs to (or none)
+function renderAttach(d){
+  const sec=$('#att-sec'); if(!PRO||!d||!proCtx||!proCtx.exs){ if(sec) sec.style.display='none'; return; }
+  const {entry}=d, hasClip=entry.clip||entry.clipBlob||entry.clipPending;
+  if(!hasClip||!proCtx.exs.length){ sec.style.display='none'; return; }
+  sec.style.display='block'; $('#att-day').textContent=proCtx.day||'';
+  const box=$('#att-box'), exs=proCtx.exs;
+  const where=exs.map(ex=>({ex,c:ex.clips.find(c=>c.t===entry.time)})).find(o=>o.c);
+  if(entry.noAttach&&!where&&!entry._attOpen){
+    box.innerHTML='<div class="muted">세트에 넣지 않았어요.</div><button class="btn-ghost att-sm" id="att-open">세트에 넣기</button>';
+    $('#att-open').onclick=()=>{ entry._attOpen=true; renderAttach(d); }; return;
+  }
+  const near=ex=>ex.lift===entry.lift&&ex.kg!=null&&entry.wkg&&Math.abs(ex.kg-entry.wkg)<=1.25;
+  const order=[...exs].sort((a,b)=>(near(b)-near(a))||((b.lift===entry.lift)-(a.lift===entry.lift)));
+  let h=where?`<div class="att-now">✓ <b>${escapeHtml(where.ex.name)}</b> ${where.c.set?'세트 '+where.c.set:''}에 넣었어요</div>`:'<div class="muted" style="margin-bottom:8px">세트 번호를 누르면 그 세트 상세 화면에 영상이 보여요.</div>';
+  h+='<div class="att-list">';
+  order.forEach(ex=>{
+    h+=`<div class="att-row${near(ex)?' rec':''}"><div class="att-n"><b>${escapeHtml(ex.name)}</b><span>${escapeHtml(ex.rx)}${ex.kg!=null?' · '+(Math.round(ex.kg*2)/2)+'kg':''}${near(ex)?' · 추천':''}</span></div><div class="att-sets">`;
+    for(let i=1;i<=Math.min(ex.sets,10);i++){
+      const mine=ex.clips.some(c=>c.t===entry.time&&(c.set||1)===i), other=!mine&&ex.clips.some(c=>c.set===i);
+      h+=`<button class="att-set${mine?' on':other?' taken':''}" data-ex="${ex.id}" data-set="${i}" title="${other?'다른 영상이 있어요 — 누르면 바꿔요':''}">${i}</button>`;
+    }
+    h+='</div></div>';
+  });
+  h+=`</div><button class="btn-ghost att-sm" id="att-none">${where?'세트에서 빼기':'넣지 않기'}</button>`;
+  box.innerHTML=h;
+  box.querySelectorAll('.att-set').forEach(b=>b.onclick=()=>{
+    if(b.classList.contains('on')) return;
+    parent.postMessage({type:'tlpro-attach',time:entry.time,exId:b.dataset.ex,set:+b.dataset.set,wkg:entry.wkg,reps:entry.reps},location.origin);
+    entry.noAttach=false; saveSets(); toast('영상을 세트에 넣었어요');
+  });
+  $('#att-none').onclick=()=>{
+    if(where){ parent.postMessage({type:'tlpro-detach',time:entry.time},location.origin); toast('세트에서 뺐어요'); }
+    entry.noAttach=true; entry._attOpen=false; saveSets(); renderAttach(d);
+  };
+}
 function renderProToday(){
   const el=$('#pro-today'); if(!el) return;
   if(!PRO||!proCtx||!proCtx.lifts||!Object.keys(proCtx.lifts).length){ el.style.display='none'; return; }
@@ -1719,13 +1764,25 @@ function renderProToday(){
   el.style.display='block';
 }
 if(PRO){
+  // Inside the tracker the parent page owns the back button: this frame keeps no history entries of its own
+  // (they would mix with the tracker's), and the parent asks us to step back with 'tlpro-back'.
+  try{ history.pushState=function(){}; history.replaceState=function(){}; }catch(e){}
+  addEventListener('message',e=>{
+    if(e.origin!==location.origin||!e.data||e.data.type!=='tlpro-back') return;
+    if($('#settings-bg').classList.contains('open')){ $('#settings-bg').classList.remove('open'); renderHome(); return; }
+    if(mode==='analyze'){ cancelAnalysis(); toast('분석을 취소했어요'); return; }
+    if(mode==='export'||mode==='export-done'){ toast('영상 저장 중이에요 — 끝나면 결과 화면으로 돌아가요'); return; }
+    if(mode==='replay'){ finishReplay(); return; }
+    if(mode!=='home'){ doHome(); return; }
+    parent.postMessage({type:'tlpro-close'},location.origin);
+  });
   addEventListener('message',e=>{
     if(e.origin!==location.origin||!e.data) return;
     if(e.data.type==='tlpro-ctx'){
       proCtx=e.data; renderProToday();
       const first=Object.keys(proCtx.lifts||{})[0];
       if(first&&mode==='home'&&LIFTS[first]){ curLift=first; cfg.lift=first; saveCfg(); renderLiftChips(); updatePauseUI(); updateCompUI(); }
-      if(curSetData&&mode==='result') renderPro(curSetData);
+      if(curSetData&&mode==='result'){ renderPro(curSetData); renderAttach(curSetData); }
     }
   });
   { const bar=document.querySelector('#view-home .bar'), lg=bar&&bar.querySelector('.logo');
@@ -1917,7 +1974,7 @@ async function saveClip(entry){
     for(const k of ks.slice(0,Math.max(0,ks.length-CLIP_KEEP))){ await idb.del(k); const s=setHistory.find(x=>'clip:'+x.time===k); if(s) delete s.clip; }
     saveSets();
   }catch(x){ clipMem.set(entry.time,blob); }                                          // storage refused: keep it for this session
-  if(curSetData&&curSetData.entry===entry&&mode==='result') showClip(entry);
+  if(curSetData&&curSetData.entry===entry&&mode==='result'){ showClip(entry); if(PRO) renderAttach(curSetData); }
 }
 async function showClip(entry){
   const box=$('#clip-box'), v=$('#clip'), msg=$('#clip-msg');

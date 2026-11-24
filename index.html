@@ -439,12 +439,16 @@ body.pro-cam-open{overflow:hidden}
 #nav{position:fixed!important;top:0;left:0;right:0;height:calc(54px + env(safe-area-inset-top))!important;padding-top:env(safe-area-inset-top)!important}
 body{padding-top:calc(54px + env(safe-area-inset-top))}
 /* set clip next to the note */
-.det-note-row{display:flex;gap:10px;align-items:stretch}
-.det-clip{flex:0 0 44%;display:flex;flex-direction:column;gap:6px;margin:10px 0 10px 12px}
-.det-clip video{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:10px;background:#000;display:block}
-.det-clip-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;font-weight:700;color:var(--text2)}
-#det-clip-tabs{display:flex;gap:4px}#det-clip-tabs button{min-width:24px;height:22px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--text2);font:700 11px var(--fb)}#det-clip-tabs button.on{background:var(--acc-dim);color:var(--acc);border-color:var(--acc)}
-.det-note-row .det-note-ta{flex:1;min-height:120px}
+.det-media-row{display:flex;gap:10px;align-items:stretch}
+.det-media-row>.det-section{margin-bottom:12px}
+.det-clip{flex:0 0 58%;display:flex;flex-direction:column}
+.det-clip .det-section-title{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.det-clip video{width:100%;aspect-ratio:9/16;object-fit:cover;background:#000;display:block;cursor:pointer}
+.det-clip-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;font-size:12px;font-weight:700;color:var(--text2)}
+#det-clip-del{border:1px solid var(--border);background:var(--s2);color:var(--danger);font:700 11px var(--fb);padding:5px 9px;border-radius:7px;cursor:pointer}
+#det-clip-tabs{display:flex;gap:4px}#det-clip-tabs button{min-width:26px;height:22px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--text2);font:700 10px var(--fb);letter-spacing:0;padding:0 5px}#det-clip-tabs button.on{background:var(--acc-dim);color:var(--acc);border-color:var(--acc)}
+.det-note-sec{flex:1;display:flex;flex-direction:column}
+.det-note-sec .det-note-ta{flex:1;min-height:140px}
 /* Inter, tabular numbers */
 body{font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.005em}
 #pro-sheet{position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);display:none;align-items:flex-end;justify-content:center}
@@ -707,10 +711,17 @@ body.drawer-open #drawer{transform:none}body.drawer-open #drawer-bg{opacity:1;po
       <div class="det-section-title">Set Tracker</div>
       <div id="det-set-tracker"></div>
     </div>
-    <!-- Note -->
-    <div class="det-section">
-      <div class="det-section-title">Notes</div>
-      <div class="det-note-row"><div class="det-clip" id="det-clip" style="display:none"><video id="det-clip-v" muted loop playsinline></video><div class="det-clip-meta"><span id="det-clip-msg"></span><span id="det-clip-tabs"></span></div></div><textarea class="det-note-ta" id="det-note" placeholder="Cues, feedback, feelings…"></textarea></div>
+    <!-- Video (left) + Note (right) -->
+    <div class="det-media-row">
+      <div class="det-section det-clip" id="det-clip" style="display:none">
+        <div class="det-section-title">Video<span id="det-clip-tabs"></span></div>
+        <video id="det-clip-v" muted loop playsinline></video>
+        <div class="det-clip-meta"><span id="det-clip-msg"></span><button id="det-clip-del">영상 빼기</button></div>
+      </div>
+      <div class="det-section det-note-sec">
+        <div class="det-section-title">Notes</div>
+        <textarea class="det-note-ta" id="det-note" placeholder="Cues, feedback, feelings…"></textarea>
+      </div>
     </div>
   </div>
 </div>

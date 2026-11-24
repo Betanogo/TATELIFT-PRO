@@ -63,7 +63,8 @@ function sendCtx(){
   if(!frame||!ready) return;
   const x=ctxDay||todayDay(); const by=x?sbdOf(x.d):{}; const lifts={};
   Object.entries(by).forEach(([k,arr])=>lifts[k]=arr.map(o=>({label:rx(o.ex),name:o.ex.workout})));
-  frame.contentWindow.postMessage({type:'tlpro-ctx',day:dayLabel(x),lifts},location.origin);
+  const exs=x?x.d.exercises.filter(ex=>(ex.workout||'').trim()).map(ex=>({id:ex.id,name:ex.workout,rx:rx(ex),kg:shownKg(ex),sets:Math.max(1,parseInt(ex.sets)||1),lift:(liftOf(ex.workout)||{}).lift||null,clips:(ex.clips||[]).map(c=>({t:c.t,set:c.set||null}))})):[];
+  frame.contentWindow.postMessage({type:'tlpro-ctx',day:dayLabel(x),lifts,exs},location.origin);
 }
 const paneW=()=>window.innerWidth;
 // Both pages move together, side by side (like switching apps): the detector sits at x,
@@ -94,7 +95,10 @@ function closeCam(fromPop){
 }
 addEventListener('popstate',()=>{
   if($('pro-sheet').classList.contains('open')){ closeSheet(true); return; }
-  if(open) closeCam(true);
+  if(open){   // back while on the detector: let it step back first (result → home), and leave only from its home
+    history.pushState({proCam:true},'');
+    if(frame&&ready) frame.contentWindow.postMessage({type:'tlpro-back'},location.origin); else closeCam();
+  }
 });
 addEventListener('resize',()=>setPane(open?0:paneW(),false));
 addEventListener('message',e=>{
@@ -106,7 +110,8 @@ addEventListener('message',e=>{
   else if(m.type==='tlpro-drag'){ setPane(Math.max(0,m.dx),false); }
   else if(m.type==='tlpro-dragend'){ (m.dx>paneW()*0.28||(m.vx>0.45&&m.dx>40))?closeCam():openCam(); }
   else if(m.type==='tlpro-apply'){ closeCam(); setTimeout(()=>openSheet(m),open?0:60); }
-  else if(m.type==='tlpro-set') attachClip(m);
+  else if(m.type==='tlpro-attach') attachClip(m);
+  else if(m.type==='tlpro-detach'){ detachClip(m.time); autoSave(); renderProgram(); sendCtx(); }
 });
 // tracker-side swipe (finger moving left reveals the detector)
 function blocked(t){
@@ -140,16 +145,17 @@ function updateDots(){
 setTimeout(ensureFrame,1800);   // load the detector in the background so the first swipe is instant
 
 // ── set clips from the detector → the matching set of today's program ──
+// the detector asks "어느 세트에 넣을까요?" and sends the choice here
+function findClip(t){ for(const x of allDays()) for(const ex of x.d.exercises) if((ex.clips||[]).some(c=>c.t===t)) return {x,ex}; return null; }
+function detachClip(t){ for(const x of allDays()) x.d.exercises.forEach(ex=>{ if(ex.clips&&ex.clips.some(c=>c.t===t)) ex.clips=ex.clips.filter(c=>c.t!==t); }); }
 function attachClip(m){
-  if(!m.wkg||!m.lift) return;
   const x=ctxDay||todayDay(); if(!x) return;
-  const cands=(sbdOf(x.d)[m.lift]||[]).map(o=>o.ex).filter(ex=>{ const w=shownKg(ex); return w!=null&&Math.abs(w-m.wkg)<=1.25; });
-  if(!cands.length) return;
-  const ex=cands.find(e=>+e.reps===m.reps)||cands[0];
-  ex.clips=(ex.clips||[]).filter(c=>c.t!==m.time); ex.clips.push({t:m.time,kg:+m.wkg.toFixed(1),reps:m.reps});
-  ex.clips=ex.clips.slice(-10);
-  autoSave(); renderProgram();
-  showToast(`🎬 ${ex.workout} ${fmtW(m.wkg)} 세트에 영상 연결`,3000);
+  const ex=x.d.exercises.find(e=>e.id===m.exId); if(!ex) return;
+  detachClip(m.time);
+  ex.clips=(ex.clips||[]).filter(c=>!(m.set&&c.set===m.set));   // one clip per set
+  ex.clips.push({t:m.time,kg:m.wkg?+(+m.wkg).toFixed(1):null,reps:m.reps||null,set:m.set||null});
+  ex.clips.sort((a,b)=>(a.set||99)-(b.set||99)||a.t-b.t); ex.clips=ex.clips.slice(-12);
+  autoSave(); renderProgram(); sendCtx();
 }
 const clipDB={ p:null,
   open(){ return this.p||(this.p=new Promise((res,rej)=>{ const r=indexedDB.open('tatelift',1); r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains('clips')) r.result.createObjectStore('clips'); }; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); })); },
@@ -159,20 +165,25 @@ let detURL=null;
 async function showDetClip(ex){
   const box=$('det-clip'), v=$('det-clip-v'), tabs=$('det-clip-tabs');
   if(detURL){ URL.revokeObjectURL(detURL); detURL=null; } v.removeAttribute('src'); v.controls=false;
-  const list=(ex&&ex.clips)||[]; if(!list.length){ box.style.display='none'; return; }
+  const list=(ex&&ex.clips)||[]; if(!list.length){ box.style.display='none'; tabs.innerHTML=''; return; }
   box.style.display='flex';
-  let cur=list.length-1;
   const load=async i=>{
-    cur=i; tabs.innerHTML=list.length>1?list.map((c,j)=>`<button class="${j===i?'on':''}" data-j="${j}">${j+1}</button>`).join(''):'';
+    tabs.innerHTML=list.length>1?list.map((c,j)=>`<button class="${j===i?'on':''}" data-j="${j}">${c.set?'S'+c.set:j+1}</button>`).join(''):'';
     tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>load(+b.dataset.j));
-    const blob=await clipDB.get('clip:'+list[i].t);
+    $('det-clip-del').onclick=()=>{
+      confirmAction('영상 빼기','이 세트에서 영상을 뺄까요? 영상은 RPE Detector 기록에 남아 있어서 다시 넣을 수 있어요.',()=>{
+        pushUndo(); ex.clips=list.filter((_,j)=>j!==i); autoSave(); renderProgram(); sendCtx(); showDetClip(ex);
+      });
+    };
+    const c=list[i], blob=await clipDB.get('clip:'+c.t);
     if(currentDetailEx&&currentDetailEx.ex!==ex) return;
     if(detURL){ URL.revokeObjectURL(detURL); detURL=null; }
-    if(!blob){ v.style.display='none'; $('det-clip-msg').textContent='이 폰에는 영상이 없어요'; return; }
-    v.style.display='block'; $('det-clip-msg').textContent=`${fmtW(list[i].kg)} × ${list[i].reps}`;
+    const lbl=(c.set?`세트 ${c.set} · `:'')+(c.kg?fmtW(c.kg):'')+(c.reps?` × ${c.reps}`:'');
+    if(!blob){ v.style.display='none'; $('det-clip-msg').textContent=lbl+' — 이 폰에 영상 없음'; return; }
+    v.style.display='block'; $('det-clip-msg').textContent=lbl;
     detURL=URL.createObjectURL(blob); v.src=detURL; v.muted=true; v.loop=true; v.playsInline=true; v.play().catch(()=>{});
   };
-  load(cur);
+  load(list.length-1);
 }
 const _openDet=openExDetail, _closeDet=closeExDetail;
 window.openExDetail=function(ex,day){ _openDet(ex,day); showDetClip(ex); };
@@ -279,5 +290,5 @@ $('det-clip-v').addEventListener('click',e=>{ const v=e.currentTarget; if(!v.con
   let sx=null; $('drawer').addEventListener('touchstart',e=>{ sx=e.touches[0].clientX; },{passive:true});
   $('drawer').addEventListener('touchend',e=>{ if(sx!=null&&e.changedTouches[0].clientX-sx<-50) closeDr(); sx=null; });
 }
-window.TLPRO={liftOf,openCam,closeCam,openSheet,todayDay,attachClip,scrollToToday,isOpen:()=>open};   // for testing
+window.TLPRO={liftOf,openCam,closeCam,openSheet,todayDay,attachClip,findClip,scrollToToday,isOpen:()=>open};   // for testing
 })();
