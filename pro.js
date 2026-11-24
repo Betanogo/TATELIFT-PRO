@@ -130,10 +130,15 @@ function blocked(t){
   document.addEventListener('touchstart',e=>{ if(e.touches.length!==1||blocked(e.target)){ g=null; return; } const t=e.touches[0]; g={x:t.clientX,y:t.clientY,t:performance.now(),drag:false,dead:false}; ensureFrame(); },{passive:true});
   document.addEventListener('touchmove',e=>{
     if(!g||g.dead) return; const t=e.touches[0], dx=t.clientX-g.x, dy=t.clientY-g.y;
-    if(!g.drag){ if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){ g.dead=true; return; } if(dx<-12&&Math.abs(dx)>Math.abs(dy)*1.3) g.drag=true; else return; }
+    if(!g.drag){   // decide the direction on the first few pixels and hold the page still from then on
+      const ax=Math.abs(dx), ay=Math.abs(dy); if(ax<4&&ay<4) return;
+      if(ay>=ax||dx>0){ g.dead=true; return; }
+      e.preventDefault(); if(ax<10) return;
+      g.drag=true; document.documentElement.classList.add('pro-hlock');
+    }
     e.preventDefault(); g.dx=dx; g.vx=dx/Math.max(1,performance.now()-g.t); setPane(paneW()+Math.min(0,dx),false);
   },{passive:false});
-  const end=()=>{ if(g&&g.drag){ const dx=-(g.dx||0); (dx>paneW()*0.28||(-g.vx>0.45&&dx>40))?openCam():closeCam(true); } g=null; };
+  const end=()=>{ document.documentElement.classList.remove('pro-hlock'); if(g&&g.drag){ const dx=-(g.dx||0); (dx>paneW()*0.28||(-g.vx>0.45&&dx>40))?openCam():closeCam(true); } g=null; };
   document.addEventListener('touchend',end); document.addEventListener('touchcancel',end);
 }
 // two dots at the bottom: where you are, tap to switch

@@ -220,6 +220,7 @@ html.pro .icon-btn{width:40px;height:40px;border-radius:10px;background:var(--s2
 html.pro .pro-logo{display:flex;align-items:center;gap:6px}html.pro .pro-logo img{height:22px;display:block}
 html.pro .pro-logo span{padding:2px 6px;border-radius:5px;background:var(--acc);color:#000;font:800 9px/1.2 var(--fb);letter-spacing:.08em}
 html.pro #view-home .scroll,html.pro #view-result .scroll{padding-bottom:calc(56px + var(--sb))}
+html.pro-hlock .scroll{overflow:hidden!important;touch-action:none}
 </style>
 </head>
 <body>
@@ -1809,10 +1810,15 @@ if(PRO){
     document.addEventListener('touchstart',e=>{ if(e.touches.length!==1||blockedP(e.target)){ g=null; return; } const t=e.touches[0]; g={x:t.screenX,y:t.screenY,t:performance.now(),drag:false,dead:false}; },{passive:true});
     document.addEventListener('touchmove',e=>{
       if(!g||g.dead) return; const t=e.touches[0], dx=t.screenX-g.x, dy=t.screenY-g.y;
-      if(!g.drag){ if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){ g.dead=true; return; } if(dx>12&&dx>Math.abs(dy)*1.3) g.drag=true; else return; }
+      if(!g.drag){   // decide the direction on the first few pixels; while swiping sideways the page can't scroll
+        const ax=Math.abs(dx), ay=Math.abs(dy); if(ax<4&&ay<4) return;
+        if(ay>=ax||dx<0){ g.dead=true; return; }
+        e.preventDefault(); if(ax<10) return;
+        g.drag=true; document.documentElement.classList.add('pro-hlock');
+      }
       e.preventDefault(); g.dx=dx; g.vx=dx/Math.max(1,performance.now()-g.t); parent.postMessage({type:'tlpro-drag',dx},location.origin);
     },{passive:false});
-    const end=()=>{ if(g&&g.drag) parent.postMessage({type:'tlpro-dragend',dx:g.dx||0,vx:g.vx||0},location.origin); g=null; };
+    const end=()=>{ document.documentElement.classList.remove('pro-hlock'); if(g&&g.drag) parent.postMessage({type:'tlpro-dragend',dx:g.dx||0,vx:g.vx||0},location.origin); g=null; };
     document.addEventListener('touchend',end); document.addEventListener('touchcancel',end);
   }
   parent.postMessage({type:'tlpro-ready'},location.origin);
