@@ -66,9 +66,19 @@ function sendCtx(){
   frame.contentWindow.postMessage({type:'tlpro-ctx',day:dayLabel(x),lifts},location.origin);
 }
 const paneW=()=>window.innerWidth;
+// Both pages move together, side by side (like switching apps): the detector sits at x,
+// the tracker (header + current page) sits one screen to its left.
+const trkLayers=()=>[$('nav'),document.querySelector('.page.active')].filter(Boolean);
+let clearT=null;
 function setPane(x,anim){            // x = how far the detector is from the left edge (0 = fully shown)
-  const c=$('pro-cam'); c.style.transition=anim?'transform .3s cubic-bezier(.2,.8,.2,1)':'none';
-  c.style.transform=`translateX(${Math.max(0,Math.min(paneW(),x))}px)`; c.style.visibility='visible';
+  x=Math.max(0,Math.min(paneW(),x));
+  const tr=anim?'transform .32s cubic-bezier(.2,.8,.2,1)':'none';
+  const c=$('pro-cam'); c.style.transition=tr; c.style.transform=`translate3d(${x}px,0,0)`; c.style.visibility='visible';
+  clearTimeout(clearT);
+  trkLayers().forEach(el=>{ el.style.transition=tr; el.style.transform=`translate3d(${x-paneW()}px,0,0)`; });
+  if(x>=paneW()){                    // fully back on the tracker: drop the transforms so fixed/sticky things behave normally
+    clearT=setTimeout(()=>{ trkLayers().forEach(el=>{ el.style.transition=''; el.style.transform=''; }); if(!open) c.style.visibility='hidden'; },anim?340:0);
+  }
 }
 function settle(){ updateDots(); }
 function openCam(){
@@ -79,7 +89,6 @@ function openCam(){
 }
 function closeCam(fromPop){
   setPane(paneW(),true); document.body.classList.remove('pro-cam-open');
-  setTimeout(()=>{ if(!open) $('pro-cam').style.visibility='hidden'; },320);
   if(open){ open=false; if(!fromPop&&history.state&&history.state.proCam) history.back(); }
   settle();
 }

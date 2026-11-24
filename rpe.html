@@ -1749,9 +1749,9 @@ if(PRO){
       }
       return false;
     };
-    document.addEventListener('touchstart',e=>{ if(e.touches.length!==1||blockedP(e.target)){ g=null; return; } const t=e.touches[0]; g={x:t.clientX,y:t.clientY,t:performance.now(),drag:false,dead:false}; },{passive:true});
+    document.addEventListener('touchstart',e=>{ if(e.touches.length!==1||blockedP(e.target)){ g=null; return; } const t=e.touches[0]; g={x:t.screenX,y:t.screenY,t:performance.now(),drag:false,dead:false}; },{passive:true});
     document.addEventListener('touchmove',e=>{
-      if(!g||g.dead) return; const t=e.touches[0], dx=t.clientX-g.x, dy=t.clientY-g.y;
+      if(!g||g.dead) return; const t=e.touches[0], dx=t.screenX-g.x, dy=t.screenY-g.y;
       if(!g.drag){ if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){ g.dead=true; return; } if(dx>12&&dx>Math.abs(dy)*1.3) g.drag=true; else return; }
       e.preventDefault(); g.dx=dx; g.vx=dx/Math.max(1,performance.now()-g.t); parent.postMessage({type:'tlpro-drag',dx},location.origin);
     },{passive:false});
