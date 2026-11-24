@@ -285,23 +285,64 @@ function playTimerSound(){
 }
 
 // ── Timer ─────────────────────────────────────
+// Counts against a fixed end time, so leaving the app doesn't stop it.
+// While it runs, a silent audio loop keeps the page awake in the background;
+// at the end it beeps (audio element, works in the background), vibrates, and
+// the service worker shows a notification if the app isn't on screen.
 const circumference=2*Math.PI*90;
+let timerEnd=0,timerName='',_keepAudio=null,_beepAudio=null;
+function wavURL(seconds,freqs,vol){
+  const sr=22050,n=Math.round(sr*seconds),buf=new ArrayBuffer(44+n*2),v=new DataView(buf);
+  const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  w(0,'RIFF');v.setUint32(4,36+n*2,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+  v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*2,true);
+  for(let i=0;i<n;i++){
+    const t=i/sr;let x=0;
+    freqs.forEach(([f,t0,t1])=>{if(t>=t0&&t<t1){const e=Math.min(1,(t-t0)*60,(t1-t)*30);x+=Math.sin(2*Math.PI*f*t)*e;}});
+    v.setInt16(44+i*2,Math.max(-1,Math.min(1,x*vol))*32767,true);
+  }
+  return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
+}
+function timerAudio(){
+  if(_keepAudio)return;
+  _keepAudio=new Audio(wavURL(1,[[440,0,1]],0.0005));_keepAudio.loop=true;   // practically silent
+  _beepAudio=new Audio(wavURL(1.3,[[880,0,.28],[880,.4,.68],[1175,.8,1.25]],0.8));
+}
+function playTimerSound(){
+  try{ timerAudio(); _beepAudio.currentTime=0; const p=_beepAudio.play(); if(p&&p.catch)p.catch(()=>{}); }catch(e){}
+  try{ navigator.vibrate&&navigator.vibrate([300,150,300,150,500]); }catch(e){}
+}
+function swTimer(msg){ try{ navigator.serviceWorker&&navigator.serviceWorker.controller&&navigator.serviceWorker.controller.postMessage(msg); }catch(e){} }
 function startTimer(exerciseName){
   clearInterval(timerInterval);
-  timerTotal=settings.timerDuration;timerRemaining=timerTotal;
-  const tl=document.getElementById('timer-label');if(tl)tl.textContent='Rest — '+(exerciseName||'');
+  timerTotal=settings.timerDuration;timerRemaining=timerTotal;timerName=exerciseName||'';
+  timerEnd=Date.now()+timerTotal*1000;
+  const tl=document.getElementById('timer-label');if(tl)tl.textContent='Rest — '+timerName;
   const to=document.getElementById('timer-overlay');if(to)to.classList.remove('hidden');
+  try{ timerAudio(); _keepAudio.currentTime=0; const p=_keepAudio.play(); if(p&&p.catch)p.catch(()=>{}); _beepAudio.load(); }catch(e){}
+  try{ if('Notification' in window&&Notification.permission==='default') Notification.requestPermission().catch(()=>{}); }catch(e){}
+  swTimer({type:'timer-start',at:timerEnd,name:timerName});
+  try{ if('mediaSession' in navigator){ navigator.mediaSession.metadata=new MediaMetadata({title:'휴식 타이머',artist:timerName||'TATELIFT PRO'}); } }catch(e){}
   updateTimerDisplay();
-  timerInterval=setInterval(()=>{
-    timerRemaining--;updateTimerDisplay();
-    if(timerRemaining<=0){
-      clearInterval(timerInterval);
-      const to2=document.getElementById('timer-overlay');if(to2)to2.classList.add('hidden');
-      playTimerSound();
-      showToast('Rest done! 💪');
-    }
-  },1000);
+  timerInterval=setInterval(timerTick,250);
 }
+function timerTick(){
+  const left=Math.max(0,Math.ceil((timerEnd-Date.now())/1000));
+  if(left!==timerRemaining){timerRemaining=left;updateTimerDisplay();}
+  if(timerEnd&&Date.now()>=timerEnd) finishTimer(true);
+}
+function finishTimer(rang){
+  clearInterval(timerInterval);timerEnd=0;
+  const to2=document.getElementById('timer-overlay');if(to2)to2.classList.add('hidden');
+  try{ _keepAudio&&_keepAudio.pause(); }catch(e){}
+  if(rang){
+    playTimerSound();
+    showToast('Rest done! 💪');
+    if(document.visibilityState==='visible') swTimer({type:'timer-cancel'});
+  } else swTimer({type:'timer-cancel'});
+}
+function stopTimer(){ finishTimer(false); }
+document.addEventListener('visibilitychange',()=>{ if(timerEnd) timerTick(); });
 function updateTimerDisplay(){
   const m=Math.floor(timerRemaining/60),s=timerRemaining%60;
   const tn=document.getElementById('timer-num');if(tn)tn.textContent=m+':'+(s<10?'0':'')+s;
@@ -1456,7 +1497,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   // Timer circle
   const tc=document.getElementById('timer-circle');
   if(tc)tc.style.strokeDasharray=circumference;
-  document.getElementById('timer-skip')?.addEventListener('click',()=>{clearInterval(timerInterval);document.getElementById('timer-overlay')?.classList.add('hidden');});
+  document.getElementById('timer-skip')?.addEventListener('click',()=>stopTimer());
 
   // Note modal
   document.getElementById('note-save')?.addEventListener('click',()=>{

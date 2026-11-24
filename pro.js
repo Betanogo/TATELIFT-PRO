@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════════
 // TATELIFT PRO — RPE Detector inside the tracker
-// 📷 button → RPE Detector (rpe.html) full screen → warm-up single
+// swipe left → RPE Detector (rpe.html) as the page to the right → warm-up single
 // → e1RM → today's SBD weights (top set + back-offs) → 적용하기
 // Uses the tracker's own globals: blocks, lifts, calcWeight, getOrm,
 // pushUndo, renderProgram, autoSave, showToast, findCurrentDayId, fmt.
@@ -20,12 +20,14 @@ function liftOf(name){
   return null;
 }
 
-// the tracker looked up "Bench Press" as BENCH (not a key) and fell back to the squat 1RM; map names to lifts properly
-const _getOrm=getOrm;
+// 1RM lookup by name. Only the main squat / bench / deadlift (and their pause/tempo/Larson
+// versions) and OHP have a 1RM — everything else (accessories, variations) gets no RPE weight,
+// so it shows only what was typed in. (The old tracker fell back to the squat 1RM for everything.)
 window.getOrm=function(workout){
-  const m=liftOf(workout); if(m&&lifts.current[m.lift]) return lifts.current[m.lift];
-  if(/\bohp\b|overhead|military|strict press/i.test(workout||'')&&lifts.current.OHP) return lifts.current.OHP;
-  return _getOrm(workout);
+  const m=liftOf(workout);
+  if(m) return m.main&&lifts.current[m.lift]?lifts.current[m.lift]:null;
+  if(/^\s*(ohp|overhead press|military press|strict press|press)\s*$/i.test(workout||'')) return lifts.current.OHP||null;
+  return null;
 };
 renderProgram();
 
@@ -49,8 +51,8 @@ function sbdOf(day){
   return by;
 }
 
-// ── overlay with the detector ──
-let frame=null, ready=false, ctxDay=null, open=false;
+// ── RPE Detector as the page to the right: swipe left on the tracker to go there, swipe right to come back ──
+let frame=null, ready=false, ctxDay=null, open=false, camMode='home';
 function ensureFrame(){
   if(frame) return;
   frame=document.createElement('iframe'); frame.id='pro-frame'; frame.src='rpe.html?pro=1';
@@ -63,26 +65,124 @@ function sendCtx(){
   Object.entries(by).forEach(([k,arr])=>lifts[k]=arr.map(o=>({label:rx(o.ex),name:o.ex.workout})));
   frame.contentWindow.postMessage({type:'tlpro-ctx',day:dayLabel(x),lifts},location.origin);
 }
+const paneW=()=>window.innerWidth;
+function setPane(x,anim){            // x = how far the detector is from the left edge (0 = fully shown)
+  const c=$('pro-cam'); c.style.transition=anim?'transform .3s cubic-bezier(.2,.8,.2,1)':'none';
+  c.style.transform=`translateX(${Math.max(0,Math.min(paneW(),x))}px)`; c.style.visibility='visible';
+}
+function settle(){ updateDots(); }
 function openCam(){
-  if(open) return; open=true; ctxDay=todayDay();
-  ensureFrame(); $('pro-cam').classList.add('open'); document.body.classList.add('pro-cam-open');
-  history.pushState({proCam:true},''); sendCtx();
+  ensureFrame(); ctxDay=todayDay(); sendCtx();
+  setPane(0,true); document.body.classList.add('pro-cam-open');
+  if(!open){ open=true; history.pushState({proCam:true},''); }
+  settle();
 }
 function closeCam(fromPop){
-  if(!open) return; open=false;
-  $('pro-cam').classList.remove('open'); document.body.classList.remove('pro-cam-open');
-  if(!fromPop&&history.state&&history.state.proCam) history.back();
+  setPane(paneW(),true); document.body.classList.remove('pro-cam-open');
+  setTimeout(()=>{ if(!open) $('pro-cam').style.visibility='hidden'; },320);
+  if(open){ open=false; if(!fromPop&&history.state&&history.state.proCam) history.back(); }
+  settle();
 }
 addEventListener('popstate',()=>{
   if($('pro-sheet').classList.contains('open')){ closeSheet(true); return; }
   if(open) closeCam(true);
 });
+addEventListener('resize',()=>setPane(open?0:paneW(),false));
 addEventListener('message',e=>{
   if(e.origin!==location.origin||!e.data||!frame||e.source!==frame.contentWindow) return;
-  if(e.data.type==='tlpro-ready'){ ready=true; sendCtx(); }
-  else if(e.data.type==='tlpro-close') closeCam();
-  else if(e.data.type==='tlpro-apply'){ closeCam(); setTimeout(()=>openSheet(e.data),open?0:60); }
+  const m=e.data;
+  if(m.type==='tlpro-ready'){ ready=true; sendCtx(); }
+  else if(m.type==='tlpro-close') closeCam();
+  else if(m.type==='tlpro-mode'){ camMode=m.mode; updateDots(); }
+  else if(m.type==='tlpro-drag'){ setPane(Math.max(0,m.dx),false); }
+  else if(m.type==='tlpro-dragend'){ (m.dx>paneW()*0.28||(m.vx>0.45&&m.dx>40))?closeCam():openCam(); }
+  else if(m.type==='tlpro-apply'){ closeCam(); setTimeout(()=>openSheet(m),open?0:60); }
+  else if(m.type==='tlpro-set') attachClip(m);
 });
+// tracker-side swipe (finger moving left reveals the detector)
+function blocked(t){
+  if(open||document.body.classList.contains('drawer-open')||$('pro-sheet').classList.contains('open')) return true;
+  if($('ex-detail-overlay')?.classList.contains('open')) return true;
+  if(!$('timer-overlay')?.classList.contains('hidden')) return true;
+  if([...document.querySelectorAll('.modal-overlay,#note-modal')].some(m=>!m.classList.contains('hidden'))) return true;
+  const ls=$('loading-screen'); if(ls&&ls.style.display!=='none'&&!ls.classList.contains('hide')) return true;
+  for(let el=t;el&&el!==document.body;el=el.parentElement){
+    if(/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)||el.isContentEditable) return true;
+    if(el.scrollWidth>el.clientWidth+2){ const ox=getComputedStyle(el).overflowX; if(ox==='auto'||ox==='scroll') return true; }
+  }
+  return false;
+}
+{ let g=null;
+  document.addEventListener('touchstart',e=>{ if(e.touches.length!==1||blocked(e.target)){ g=null; return; } const t=e.touches[0]; g={x:t.clientX,y:t.clientY,t:performance.now(),drag:false,dead:false}; ensureFrame(); },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(!g||g.dead) return; const t=e.touches[0], dx=t.clientX-g.x, dy=t.clientY-g.y;
+    if(!g.drag){ if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){ g.dead=true; return; } if(dx<-12&&Math.abs(dx)>Math.abs(dy)*1.3) g.drag=true; else return; }
+    e.preventDefault(); g.dx=dx; g.vx=dx/Math.max(1,performance.now()-g.t); setPane(paneW()+Math.min(0,dx),false);
+  },{passive:false});
+  const end=()=>{ if(g&&g.drag){ const dx=-(g.dx||0); (dx>paneW()*0.28||(-g.vx>0.45&&dx>40))?openCam():closeCam(true); } g=null; };
+  document.addEventListener('touchend',end); document.addEventListener('touchcancel',end);
+}
+// two dots at the bottom: where you are, tap to switch
+function updateDots(){
+  const d=$('pro-dots'); if(!d) return;
+  d.children[0].classList.toggle('on',!open); d.children[1].classList.toggle('on',open);
+  d.classList.toggle('hide',open&&camMode!=='home'&&camMode!=='result');
+}
+setTimeout(ensureFrame,1800);   // load the detector in the background so the first swipe is instant
+
+// ── set clips from the detector → the matching set of today's program ──
+function attachClip(m){
+  if(!m.wkg||!m.lift) return;
+  const x=ctxDay||todayDay(); if(!x) return;
+  const cands=(sbdOf(x.d)[m.lift]||[]).map(o=>o.ex).filter(ex=>{ const w=shownKg(ex); return w!=null&&Math.abs(w-m.wkg)<=1.25; });
+  if(!cands.length) return;
+  const ex=cands.find(e=>+e.reps===m.reps)||cands[0];
+  ex.clips=(ex.clips||[]).filter(c=>c.t!==m.time); ex.clips.push({t:m.time,kg:+m.wkg.toFixed(1),reps:m.reps});
+  ex.clips=ex.clips.slice(-10);
+  autoSave(); renderProgram();
+  showToast(`🎬 ${ex.workout} ${fmtW(m.wkg)} 세트에 영상 연결`,3000);
+}
+const clipDB={ p:null,
+  open(){ return this.p||(this.p=new Promise((res,rej)=>{ const r=indexedDB.open('tatelift',1); r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains('clips')) r.result.createObjectStore('clips'); }; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); })); },
+  async get(k){ const db=await this.open(); return new Promise(res=>{ try{ const q=db.transaction('clips','readonly').objectStore('clips').get(k); q.onsuccess=()=>res(q.result||null); q.onerror=()=>res(null); }catch(e){ res(null); } }); },
+};
+let detURL=null;
+async function showDetClip(ex){
+  const box=$('det-clip'), v=$('det-clip-v'), tabs=$('det-clip-tabs');
+  if(detURL){ URL.revokeObjectURL(detURL); detURL=null; } v.removeAttribute('src'); v.controls=false;
+  const list=(ex&&ex.clips)||[]; if(!list.length){ box.style.display='none'; return; }
+  box.style.display='flex';
+  let cur=list.length-1;
+  const load=async i=>{
+    cur=i; tabs.innerHTML=list.length>1?list.map((c,j)=>`<button class="${j===i?'on':''}" data-j="${j}">${j+1}</button>`).join(''):'';
+    tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>load(+b.dataset.j));
+    const blob=await clipDB.get('clip:'+list[i].t);
+    if(currentDetailEx&&currentDetailEx.ex!==ex) return;
+    if(detURL){ URL.revokeObjectURL(detURL); detURL=null; }
+    if(!blob){ v.style.display='none'; $('det-clip-msg').textContent='이 폰에는 영상이 없어요'; return; }
+    v.style.display='block'; $('det-clip-msg').textContent=`${fmtW(list[i].kg)} × ${list[i].reps}`;
+    detURL=URL.createObjectURL(blob); v.src=detURL; v.muted=true; v.loop=true; v.playsInline=true; v.play().catch(()=>{});
+  };
+  load(cur);
+}
+const _openDet=openExDetail, _closeDet=closeExDetail;
+window.openExDetail=function(ex,day){ _openDet(ex,day); showDetClip(ex); };
+window.closeExDetail=function(){ try{ $('det-clip-v').pause(); }catch(e){} _closeDet(); };
+
+// ── open on today's workout ──
+let userMoved=false;
+['touchstart','wheel','keydown'].forEach(t=>addEventListener(t,()=>{ userMoved=true; },{passive:true,once:true}));
+function scrollToToday(force){
+  if(userMoved&&!force) return;
+  if(!$('page-program')?.classList.contains('active')) return;
+  const x=todayDay(); if(!x) return;
+  if(x.w.collapsed){ x.w.collapsed=false; renderProgram(); }
+  const el=document.querySelector(`.day-card[data-did="${x.d.id}"]`); if(!el) return;
+  const top=el.getBoundingClientRect().top+scrollY-($('nav')?.offsetHeight||54)-12;
+  scrollTo({top:Math.max(0,top),behavior:force?'smooth':'auto'});
+}
+[200,900,2200].forEach(t=>setTimeout(()=>scrollToToday(false),t));
+{ const ls=$('loading-screen'); if(ls) new MutationObserver(()=>{ if(ls.classList.contains('hide')) setTimeout(()=>scrollToToday(false),50); }).observe(ls,{attributes:true,attributeFilter:['class']}); }
 
 // ── apply sheet ──
 let sheetData=null;
@@ -98,7 +198,7 @@ function renderSheet(){
   const {m}=sheetData, days=allDays(), x=days[sheetData.dayIdx];
   const e1=Math.round(m.e1rm/2.5)*2.5, cur=lifts.current[m.lift];
   let h=`<div class="ps-h">오늘 ${LIFT_NAME[m.lift]} 무게</div>
-    <div class="ps-from">워밍업 ${m.wkg.toFixed(1)}kg × ${m.reps} @RPE ${(+m.rpe).toFixed(1)} <span>(${m.src})</span> → 1RM의 ${(m.pct*100).toFixed(1)}%</div>
+    <div class="ps-from">워밍업 ${m.wkg.toFixed(1)}kg × ${m.reps}${m.v?` · 바 속도 ${m.v.toFixed(2)} m/s`:''} → 1RM의 ${(m.pct*100).toFixed(1)}%${m.rpeLbl?` (≈ RPE ${m.rpeLbl})`:''} <span>${m.how?'· '+m.how:'· '+(m.src||'')}</span></div>
     <div class="ps-e1"><b>${fmtW(e1)}</b><span>오늘 e1RM</span>${cur?`<em>${e1>=cur?'+':''}${Math.round(toDisplay(e1-cur))} vs 프로필 1RM ${fmtW(cur)}</em>`:''}</div>
     <label class="ps-day">운동일 <select id="ps-day">${days.map((d,i)=>`<option value="${i}"${i===sheetData.dayIdx?' selected':''}>${d.b.name} · ${dayLabel(d)}</option>`).join('')}</select></label>`;
   const rows=x?(sbdOf(x.d)[m.lift]||[]):[];
@@ -123,7 +223,7 @@ function renderSheet(){
     if(!picks.length){ showToast('적용할 세트를 체크하세요'); return; }
     pushUndo();
     picks.forEach(ex=>{ ex.weightKg=calcWeight(m.e1rm,ex.rpe,ex.reps,ex.tempo,ex.workout); });
-    x.d.proE1rm=Object.assign(x.d.proE1rm||{},{[m.lift]:{e1rm:+m.e1rm.toFixed(1),from:`${m.wkg.toFixed(1)}x${m.reps}@${m.rpe}`,at:Date.now()}});
+    x.d.proE1rm=Object.assign(x.d.proE1rm||{},{[m.lift]:{e1rm:+m.e1rm.toFixed(1),from:`${m.wkg.toFixed(1)}x${m.reps}${m.v?' v'+m.v.toFixed(2):''}@${m.rpeLbl||m.rpe||''}`,at:Date.now()}});
     renderProgram(); autoSave(); closeSheet();
     showToast(`${LIFT_NAME[m.lift]} ${picks.length}세트 적용 ✓`,2800);
   };
@@ -138,14 +238,16 @@ addEventListener('appinstalled',()=>{ installEvt=null; $('pro-install').style.di
 
 // ── markup ──
 document.body.insertAdjacentHTML('beforeend',`
-<button id="pro-fab" aria-label="RPE Detector"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
-<div id="pro-cam"><button id="pro-cam-close" aria-label="닫기">✕</button></div>
+<div id="pro-cam"></div>
+<div id="pro-dots"><button aria-label="Tracker"></button><button aria-label="RPE Detector"></button></div>
 <div id="pro-sheet"><div id="pro-sheet-box"></div></div>
 <button id="pro-install"><b>📲</b> 앱으로 설치</button>`);
-$('pro-fab').onclick=openCam;
-$('pro-cam-close').onclick=()=>closeCam();
+$('pro-dots').children[0].onclick=()=>{ if(open) closeCam(); };
+$('pro-dots').children[1].onclick=()=>{ if(!open) openCam(); };
+updateDots();
 $('pro-sheet').addEventListener('click',e=>{ if(e.target.id==='pro-sheet') closeSheet(); });
 $('pro-install').onclick=async()=>{ if(!installEvt) return; installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt=null; $('pro-install').style.display='none'; };
+$('det-clip-v').addEventListener('click',e=>{ const v=e.currentTarget; if(!v.controls){ v.controls=true; e.preventDefault(); } });
 // ☰ menu: a drawer that slides in from the left with every page + settings
 { const btn=$('btn-settings'), TITLE={program:'Program',stats:'PRs',rpe:'RPE Chart',log:'Log',calendar:'Calendar'};
   const isOpen=()=>document.body.classList.contains('drawer-open');
@@ -168,5 +270,5 @@ $('pro-install').onclick=async()=>{ if(!installEvt) return; installEvt.prompt();
   let sx=null; $('drawer').addEventListener('touchstart',e=>{ sx=e.touches[0].clientX; },{passive:true});
   $('drawer').addEventListener('touchend',e=>{ if(sx!=null&&e.changedTouches[0].clientX-sx<-50) closeDr(); sx=null; });
 }
-window.TLPRO={liftOf,openCam,openSheet,todayDay};   // for testing
+window.TLPRO={liftOf,openCam,closeCam,openSheet,todayDay,attachClip,scrollToToday,isOpen:()=>open};   // for testing
 })();
