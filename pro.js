@@ -146,5 +146,13 @@ $('pro-fab').onclick=openCam;
 $('pro-cam-close').onclick=()=>closeCam();
 $('pro-sheet').addEventListener('click',e=>{ if(e.target.id==='pro-sheet') closeSheet(); });
 $('pro-install').onclick=async()=>{ if(!installEvt) return; installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt=null; $('pro-install').style.display='none'; };
+// menu (☰) opens settings; pressing it again goes back to the tab you were on
+{ let lastTab='program'; const btn=$('btn-settings');
+  document.querySelectorAll('#subnav .nav-tab').forEach(t=>t.addEventListener('click',()=>{ lastTab=t.dataset.page; btn.classList.remove('on'); t.scrollIntoView({inline:'nearest',block:'nearest'}); }));
+  btn.addEventListener('click',e=>{
+    if(btn.classList.contains('on')){ e.stopImmediatePropagation(); btn.classList.remove('on'); document.querySelector(`#subnav .nav-tab[data-page="${lastTab}"]`)?.click(); return; }
+    btn.classList.add('on');
+  },true);
+}
 window.TLPRO={liftOf,openCam,openSheet,todayDay};   // for testing
 })();
