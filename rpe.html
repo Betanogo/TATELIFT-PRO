@@ -87,6 +87,7 @@ button{font-family:inherit;color:inherit;}
 
 /* ── EDIT / ANALYZE ── */
 #stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden;}
+#view-edit[data-mode="edit"] #stage{touch-action:none;}
 #video,#overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;}
 #overlay{pointer-events:none;}
 #edit-hint{position:absolute;left:50%;top:12px;transform:translateX(-50%);max-width:90%;width:max-content;background:rgba(11,11,12,.78);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:12px;font-weight:700;text-align:center;pointer-events:none;z-index:4;line-height:1.5;}
@@ -421,38 +422,41 @@ class PlateTracker{
   constructor(){this.ok=false;this.A=new Float64Array(72);}
   init(G,W,H,cx,cy){
     this.W=W;this.H=H;
-    const f=fitPlate(G,W,H,cx,cy);
-    this.r=f.r; this.cx=f.x; this.cy=f.y; this.vx=0;this.vy=0;
+    const f=fitPlateShape(G,W,H,cx,cy);
+    this.r=f.r; this.rx=f.rx; this.ry=f.ry; this.cx=f.x; this.cy=f.y; this.vx=0;this.vy=0;
     this._makeTemplate(G); this.T0=this.T.slice(); this._makeColors();
     this.score=1;this.lost=0;this.ok=true;this._q=[];this.gy=cy;
   }
-  setRadius(r){this.r=Math.max(6,r);}
+  setRadius(r){ r=Math.max(6,r); const f=r/(this.r||r); this.rx=(this.rx||this.r||r)*f; this.ry=(this.ry||this.r||r)*f; this.r=r; }
   _makeTemplate(G){
-    const hs=Math.max(9,Math.min(42,Math.round(this.r*0.72)));
-    this.tw=this.th=hs*2;
-    const x0=Math.round(this.cx-hs),y0=Math.round(this.cy-hs);
+    // template box follows the plate's shape (narrow when it's seen at an angle)
+    const k=Math.min(1,42/(Math.max(this.rx||this.r,this.ry||this.r)*0.72));
+    const hx=Math.max(9,Math.round((this.rx||this.r)*0.72*k)), hy=Math.max(9,Math.round((this.ry||this.r)*0.72*k));
+    this.tw=hx*2; this.th=hy*2;
+    const x0=Math.round(this.cx-hx),y0=Math.round(this.cy-hy);
     this.T=new Float32Array(this.tw*this.th);
     for(let j=0;j<this.th;j++)for(let i=0;i<this.tw;i++){
       const x=Math.min(this.W-1,Math.max(0,x0+i)),y=Math.min(this.H-1,Math.max(0,y0+j));
       this.T[j*this.tw+i]=G[y*this.W+x];
     }
     this.ci=new Uint8Array(this.tw); for(let i=0;i<this.tw;i++) this.ci[i]=Math.min(2,Math.floor(i*3/this.tw));
+    this.cj=new Uint8Array(this.th); for(let j=0;j<this.th;j++) this.cj[j]=Math.min(2,Math.floor(j*3/this.th));
   }
   // per-cell mean colour of the plate (chroma, so lighting changes matter less)
   _makeColors(){
-    const W=this.W,tw=this.tw,th=this.th,ci=this.ci,x0=Math.round(this.cx-tw/2),y0=Math.round(this.cy-th/2);
+    const W=this.W,tw=this.tw,th=this.th,ci=this.ci,cj=this.cj,x0=Math.round(this.cx-tw/2),y0=Math.round(this.cy-th/2);
     const sr=new Float64Array(9),sb=new Float64Array(9),n=new Float64Array(9);
-    for(let j=0;j<th;j++)for(let i=0;i<tw;i++){const x=Math.min(W-1,Math.max(0,x0+i)),y=Math.min(this.H-1,Math.max(0,y0+j)),k=ci[j]*3+ci[i];
+    for(let j=0;j<th;j++)for(let i=0;i<tw;i++){const x=Math.min(W-1,Math.max(0,x0+i)),y=Math.min(this.H-1,Math.max(0,y0+j)),k=cj[j]*3+ci[i];
       sr[k]+=CR[y*W+x];sb[k]+=CB[y*W+x];n[k]++;}
     this.tcr=[...sr].map((v,k)=>v/n[k]); this.tcb=[...sb].map((v,k)=>v/n[k]);
   }
   // returns mean of the best cells; cells outside the frame are ignored
   _ncc(G,x0,y0,sp,T){
-    const W=this.W,H=this.H,tw=this.tw,th=this.th,ci=this.ci,A=this.A;
+    const W=this.W,H=this.H,tw=this.tw,th=this.th,ci=this.ci,cj=this.cj,A=this.A;
     const i0=Math.max(0,-x0),i1=Math.min(tw,W-x0),j0=Math.max(0,-y0),j1=Math.min(th,H-y0);
     if(i1-i0<tw*0.45||j1-j0<th*0.45) return -2;
     A.fill(0);
-    for(let j=j0;j<j1;j+=sp){const row=(y0+j)*W+x0,trow=j*tw,cy=ci[j]*3;
+    for(let j=j0;j<j1;j+=sp){const row=(y0+j)*W+x0,trow=j*tw,cy=cj[j]*3;
       for(let i=i0;i<i1;i+=sp){const a=T[trow+i],p=row+i,b=G[p],k=cy+ci[i],o=k*6;
         A[o]+=a;A[o+1]+=b;A[o+2]+=a*a;A[o+3]+=b*b;A[o+4]+=a*b;A[o+5]++;A[54+k*2]+=CR[p];A[55+k*2]+=CB[p];}}
     const minN=(tw/3)*(th/3)/(sp*sp)*0.5, q=this._q; q.length=0; let valid=0;
@@ -727,6 +731,86 @@ function fitPlate(G,W,H,tx,ty){
   for(const [ox,oy] of [[0,0],[2,0],[-2,0],[0,2],[0,-2],[2,2],[-2,-2],[2,-2],[-2,2]]) rs.push(estimateRadius(G,W,H,ccx+ox,ccy+oy));
   rs.sort((a,b)=>a-b);
   return {x:ccx,y:ccy,r:rs[rs.length>>1]};
+}
+// Plate outline as an axis-aligned ellipse around the centre. Seen from the side a plate is a circle;
+// seen at an angle (or from the front) it narrows horizontally. Each ray from the centre gives a few
+// candidate edges; RANSAC picks the ellipse most rays agree on (outer rim preferred), then least squares.
+// The vertical semi-axis keeps the true plate radius (the camera turns around the vertical axis), so the
+// cm-per-pixel scale stays right at any angle.
+function fitEllipse(G,W,H,cx,cy){
+  const maxR=Math.floor(Math.min(W,H)*0.4), N=48, rays=[];
+  for(let a=0;a<N;a++){
+    const ang=a/N*Math.PI*2, ca=Math.cos(ang), sa=Math.sin(ang), prof=[];
+    for(let r=0;r<=maxR;r++){ const x=Math.round(cx+ca*r), y=Math.round(cy+sa*r); if(x<0||y<0||x>=W||y>=H) break; prof.push(G[y*W+x]); }
+    if(prof.length<8) continue;
+    const g=[]; let gmax=0;
+    for(let r=2;r<prof.length-2;r++){ const v=Math.abs(prof[r+2]-prof[r-2]); g[r]=v; if(v>gmax) gmax=v; }
+    const thr=Math.max(14,gmax*0.3), cands=[];
+    for(let r=4;r<prof.length-2;r++) if(g[r]>=thr&&g[r]>=(g[r-1]||0)&&g[r]>=(g[r+1]||0)) cands.push({r,w:g[r]/gmax});
+    cands.sort((p,q)=>q.w-p.w);
+    rays.push({c:ca*ca,s:sa*sa,ang,len:prof.length,cands:cands.slice(0,7)});
+  }
+  const R=rays.filter(r=>r.cands.length); if(R.length<16) return null;
+  const pred=(A,B,ry)=>1/Math.sqrt(A*ry.c+B*ry.s);
+  // support counted per 45° sector, so a real closed outline beats a few long straight edges (the bar, a rack upright)
+  const support=(A,B)=>{
+    const hit=new Float32Array(8), cnt=new Float32Array(8); let n=0;
+    for(const ry of R){ const p=pred(A,B,ry); if(p>ry.len-2) continue;      // runs off the frame: no vote either way
+      const k=Math.floor(ry.ang/(Math.PI/4))%8; cnt[k]++;
+      const tol=Math.max(2,p*0.07); let bw=0; for(const c of ry.cands) if(Math.abs(c.r-p)<=tol&&c.w>bw) bw=c.w;
+      if(bw>0){ hit[k]+=0.6+bw; n++; } }
+    let sc=0,seen=0,good=0;
+    for(let k=0;k<8;k++){ if(cnt[k]<2) continue; seen++; const f=hit[k]/(cnt[k]*1.6); sc+=f; if(f>=0.3) good++; }
+    return {sc:seen?sc*8/seen:0,n,seen,good}; };
+  let seed=12345; const rnd=k=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed%k; };
+  const hyps=[];
+  for(let it=0;it<900;it++){
+    const i=R[rnd(R.length)], j=R[rnd(R.length)];
+    const det=i.c*j.s-j.c*i.s; if(Math.abs(det)<0.25) continue;      // need two clearly different directions
+    const ri=i.cands[rnd(i.cands.length)].r, rj=j.cands[rnd(j.cands.length)].r;
+    const A=(j.s/(ri*ri)-i.s/(rj*rj))/det, B=(i.c/(rj*rj)-j.c/(ri*ri))/det;
+    if(!(A>0&&B>0)) continue;
+    const ax=1/Math.sqrt(A), by=1/Math.sqrt(B);
+    if(ax<5||by<5||ax>maxR||by>maxR||Math.min(ax,by)/Math.max(ax,by)<0.12) continue;
+    const s=support(A,B); if(s.seen>=5&&s.good>=s.seen-1) hyps.push({A,B,ax,by,...s});
+  }
+  if(!hyps.length) return null;
+  const best=Math.max(...hyps.map(h=>h.sc));
+  // the plate's rim, not its hub: among well-supported ellipses take the biggest
+  const pick=hyps.filter(h=>h.sc>=best*0.8).sort((p,q)=>q.ax*q.by-p.ax*p.by)[0];
+  // refine: least squares on the matching edge points (A·cos² + B·sin² = 1/r²), trimmed twice
+  let A=pick.A,B=pick.B;
+  for(let pass=0;pass<2;pass++){
+    let s11=0,s12=0,s22=0,t1=0,t2=0,k=0;
+    for(const ry of R){ const p=pred(A,B,ry); if(p>ry.len-2) continue; const tol=Math.max(2,p*(pass?0.05:0.08));
+      let br=null,bd=1e9; for(const c of ry.cands){ const d=Math.abs(c.r-p); if(d<=tol&&d<bd){bd=d;br=c.r;} }
+      if(br==null) continue; const y=1/(br*br); s11+=ry.c*ry.c; s12+=ry.c*ry.s; s22+=ry.s*ry.s; t1+=ry.c*y; t2+=ry.s*y; k++; }
+    const d=s11*s22-s12*s12; if(k<8||Math.abs(d)<1e-9) break;
+    const nA=(t1*s22-t2*s12)/d, nB=(s11*t2-s12*t1)/d; if(!(nA>0&&nB>0)) break; A=nA; B=nB;
+  }
+  let fin=support(A,B);
+  if(fin.seen<5||fin.good<fin.seen-1) return null;
+  // the best-supported outline is often the hub or an inner ring; the rim is the same shape, bigger
+  // (concentric, same plane → same squash). Walk outwards and keep the biggest ring that is still well supported.
+  let kBest=1; const base=fin.sc, maxK=maxR*Math.sqrt(Math.max(A,B));
+  for(let k=1.08;k<=maxK;k*=1.04){ const s2=support(A/(k*k),B/(k*k)); if(s2.seen>=4&&s2.good>=Math.max(3,s2.seen-2)&&s2.sc>=Math.max(2.5,base*0.4)) kBest=k; }   // the rim is often partly hidden (hands, collar, frame edge)
+  const q=fin.sc/8; A/=kBest*kBest; B/=kBest*kBest;
+  return {rx:1/Math.sqrt(A),ry:1/Math.sqrt(B),q,k:kBest};
+}
+// Plate centre + outline: the circle fit gives a first centre; the ellipse is then fitted from a few
+// centres around it and around the tap, keeping the best-supported outline.
+function fitPlateShape(G,W,H,tx,ty){
+  const f=fitPlate(G,W,H,tx,ty);
+  let best=null; const seen=new Set();
+  const tryAt=(x,y)=>{ x=Math.round(x); y=Math.round(y); const k=x+','+y; if(seen.has(k)||x<2||y<2||x>W-3||y>H-3) return; seen.add(k);
+    const e=fitEllipse(G,W,H,x,y); if(!e) return;
+    e.s=e.q-0.5*Math.hypot(x-tx,y-ty)/(Math.min(W,H)*0.25);              // people tap the middle of the plate
+    if(!best||e.s>best.s+0.02||(e.s>best.s-0.02&&e.rx*e.ry>best.rx*best.ry)) best={...e,x,y}; };
+  const st=Math.max(3,Math.round(Math.min(W,H)*0.012));
+  for(const [cx,cy] of [[f.x,f.y],[tx,ty]]) for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) tryAt(cx+dx*st,cy+dy*st);
+  if(!best||best.q<0.55) return {x:f.x,y:f.y,r:f.r,rx:f.r,ry:f.r,q:0};
+  let {rx,ry}=best; if(Math.min(rx,ry)/Math.max(rx,ry)>0.9){ const m=(rx+ry)/2; rx=ry=m; }   // practically round
+  return {x:best.x,y:best.y,r:Math.max(rx,ry),rx,ry,q:best.q};
 }
 // Estimate plate radius from tap point: find the most consistent circular edge across rays
 function estimateRadius(G,W,H,cx,cy){
@@ -1193,14 +1277,46 @@ function stopPreview(){ pausePlay(); }
 function updateHead(t){ const d=video.duration||1; $('#phead').style.left=(t/d*100)+'%'; $('#head-time').textContent=t.toFixed(2)+'s'; }
 
 // ── Plate selection ──────────────────────────────────────
+// press and drag to place the tracking point: a crosshair follows the finger (drawn a little above it so the
+// finger doesn't hide the spot) and the plate is fitted where you let go
+let stageDrag=null, skipClick=false;
+const dragLift=ev=>ev.pointerType==='touch'?Math.min(70,$('#stage').clientHeight*0.08):0;
+function dragPoint(ev){ return tapToVideo({clientX:ev.clientX,clientY:ev.clientY-dragLift(ev)}); }
+function drawDragPreview(p){
+  const W=overlay.width,H=overlay.height, vw=video.videoWidth; octx.clearRect(0,0,W,H); if(!p||!vw) return;
+  const k=W/vw, x=p.x*k, y=p.y*k;
+  const rx=tracker.ok?(tracker.rx||tracker.r)*W/WW:W*0.12, ry=tracker.ok?(tracker.ry||tracker.r)*W/WW:W*0.12;
+  octx.lineWidth=Math.max(2,W/220); octx.strokeStyle='rgba(255,255,255,.9)'; octx.setLineDash([8,6]);
+  octx.beginPath(); octx.ellipse(x,y,rx,ry,0,0,Math.PI*2); octx.stroke(); octx.setLineDash([]);
+  octx.strokeStyle='#ff7a1a'; octx.lineWidth=Math.max(2,W/160); const a=Math.max(10,W/30);
+  octx.beginPath(); octx.moveTo(x-a,y); octx.lineTo(x+a,y); octx.moveTo(x,y-a); octx.lineTo(x,y+a); octx.stroke();
+}
+$('#stage').addEventListener('pointerdown',ev=>{
+  if(mode!=='edit'||ev.target.closest('button')||!video.paused||!atStart()) return;
+  stageDrag={x:ev.clientX,y:ev.clientY,id:ev.pointerId,moved:false};
+});
+$('#stage').addEventListener('pointermove',ev=>{
+  const d=stageDrag; if(!d||ev.pointerId!==d.id) return;
+  if(!d.moved){ if(Math.hypot(ev.clientX-d.x,ev.clientY-d.y)<8) return; d.moved=true; try{$('#stage').setPointerCapture(ev.pointerId);}catch(x){} }
+  ev.preventDefault(); drawDragPreview(dragPoint(ev));
+});
+const endStageDrag=ev=>{
+  const d=stageDrag; stageDrag=null; if(!d||!d.moved) return;
+  skipClick=true; setTimeout(()=>{ skipClick=false; },400);
+  if(ev.type==='pointercancel'){ drawEditOverlay(); return; }
+  const p=dragPoint(ev); if(!p){ drawEditOverlay(); return; }
+  selectPlate({clientX:ev.clientX,clientY:ev.clientY-dragLift(ev)});
+};
+$('#stage').addEventListener('pointerup',endStageDrag); $('#stage').addEventListener('pointercancel',endStageDrag);
 $('#stage').addEventListener('click',ev=>{
+  if(skipClick){ skipClick=false; return; }
   if(mode==='replay'){ finishReplay(); return; }
   if(mode!=='edit'||ev.target.closest('button')) return;
   if(!video.paused){ pausePlay(); return; }
   if(!atStart()){ scrubTo(trim.a); toast('시작 지점으로 이동했어요 — 플레이트를 탭하세요'); return; }
   selectPlate(ev);
 });
-function snapTracker(){ const t=tracker; return {cx:t.cx,cy:t.cy,r:t.r,T:t.T.slice(),T0:t.T0.slice(),tw:t.tw,th:t.th,ci:t.ci,tcr:t.tcr,tcb:t.tcb,W:t.W,H:t.H}; }
+function snapTracker(){ const t=tracker; return {cx:t.cx,cy:t.cy,r:t.r,rx:t.rx,ry:t.ry,T:t.T.slice(),T0:t.T0.slice(),tw:t.tw,th:t.th,ci:t.ci,cj:t.cj,tcr:t.tcr,tcb:t.tcb,W:t.W,H:t.H}; }
 function restoreTracker(){
   if(!tapSnap) return false;
   Object.assign(tracker,{...tapSnap,T:tapSnap.T.slice(),T0:tapSnap.T0.slice(),vx:0,vy:0,lost:0,score:1,ok:true,gy:tapSnap.cy,_q:[]});
@@ -1214,7 +1330,7 @@ function selectPlate(ev){
   tapSnap=snapTracker();
   drawOverlay(null); updateEditUI();
 }
-const nudgeR=f=>{ if(!tracker.ok) return; tracker.setRadius(tracker.r*f); if(tapSnap) tapSnap.r=tracker.r; if(rLock) saveLock(); drawOverlay(null); };
+const nudgeR=f=>{ if(!tracker.ok) return; tracker.setRadius(tracker.r*f); if(tapSnap){ tapSnap.r=tracker.r; tapSnap.rx=tracker.rx; tapSnap.ry=tracker.ry; } if(rLock) saveLock(); drawOverlay(null); };
 $('#r-minus').onclick=()=>nudgeR(0.97);
 $('#r-plus').onclick=()=>nudgeR(1.03);
 // size lock: same camera spot → same plate size every set, so velocities (and RPE) stay comparable
@@ -1391,7 +1507,7 @@ function drawOverlay(res){
   octx.lineWidth=Math.max(3,W/180); octx.strokeStyle=col;
   if(lastSrc==='pose'&&active) octx.setLineDash([8,6]);
   const cx=res?res.x:tracker.cx, cy=res?res.y:tracker.cy;
-  octx.beginPath(); octx.arc(cx*k,cy*k,tracker.r*k,0,Math.PI*2); octx.stroke(); octx.setLineDash([]);
+  octx.beginPath(); octx.ellipse(cx*k,cy*k,(tracker.rx||tracker.r)*k,(tracker.ry||tracker.r)*k,0,0,Math.PI*2); octx.stroke(); octx.setLineDash([]);
   octx.fillStyle=col; octx.beginPath(); octx.arc(cx*k,cy*k,Math.max(4,W/120),0,Math.PI*2); octx.fill();
   if(active&&seg&&seg.T.length>4){
     const v=seg.vel(seg.T.length-3), vn=Math.max(-1,Math.min(1,v/1.0));
@@ -1406,7 +1522,7 @@ function drawDebug(res){
   const i=seg?seg.T.length-1:-1;
   b.textContent=[
     'fps   '+fps+'  rate '+video.playbackRate.toFixed(2),
-    'score '+(tracker.ok?tracker.score.toFixed(2):'—')+'  r '+(tracker.ok?tracker.r.toFixed(1):'—'),
+    'score '+(tracker.ok?tracker.score.toFixed(2):'—')+'  r '+(tracker.ok?(tracker.rx||tracker.r).toFixed(0)+'×'+(tracker.ry||tracker.r).toFixed(0):'—'),
     'y     '+(i>=0?(seg.Y[i]*100).toFixed(1)+'cm':'—')+'  v '+(i>2?seg.vel(i-2).toFixed(2):'—'),
     'pose  '+(POSE.lm?`${POSE.delegate} ${POSE.ms.toFixed(0)}ms ${poseNow()?'✓':'—'} src ${lastSrc}`:(POSE.err?'ERR':POSE.loading?'loading':'off')),
     'cam   '+(stab.n>=3?`${stab.dx.toFixed(1)},${stab.dy.toFixed(1)} ±${stab.range.toFixed(1)} ${stab.shaking?'SHAKE':stab.good?'ok':'bg hidden'} (${stab.P.filter(p=>p.ok).length}/${stab.n})`:'no bg'),
@@ -1551,7 +1667,7 @@ function captureFrame(tRel){
   const vw=video.videoWidth,vh=video.videoHeight,cw=384,ch=Math.round(cw*vh/vw);
   capCanvas.width=cw; capCanvas.height=ch;
   capCtx.drawImage(video,0,0,cw,ch);
-  if(tracker.ok){const k=cw/WW;capCtx.strokeStyle='#1fe0c4';capCtx.lineWidth=2;capCtx.beginPath();capCtx.arc(tracker.cx*k,tracker.cy*k,tracker.r*k,0,Math.PI*2);capCtx.stroke();}
+  if(tracker.ok){const k=cw/WW;capCtx.strokeStyle='#1fe0c4';capCtx.lineWidth=2;capCtx.beginPath();capCtx.ellipse(tracker.cx*k,tracker.cy*k,(tracker.rx||tracker.r)*k,(tracker.ry||tracker.r)*k,0,0,Math.PI*2);capCtx.stroke();}
   const url=capCanvas.toDataURL('image/jpeg',0.6);
   frames.push({t:tRel,data:url.slice(url.indexOf(',')+1)});
   while(frames.length>400) frames.shift();
@@ -2039,7 +2155,7 @@ function drawLogged(t){
   octx.stroke();
   const col=e.lost?'#ef5b5b':e.ph==='up'?'#1fe0c4':e.ph==='down'?'#ffc531':e.ph==='bottom'?'#ff7a1a':'#ffffff';
   octx.lineWidth=Math.max(3,W/180); octx.strokeStyle=col; if(e.src==='pose') octx.setLineDash([8,6]);
-  octx.beginPath(); octx.arc(e.x*k,e.y*k,tracker.r*k,0,Math.PI*2); octx.stroke(); octx.setLineDash([]);
+  octx.beginPath(); octx.ellipse(e.x*k,e.y*k,(tracker.rx||tracker.r)*k,(tracker.ry||tracker.r)*k,0,0,Math.PI*2); octx.stroke(); octx.setLineDash([]);
 }
 function exportFrame(t){
   if(t>=trim.b-0.001){ finishExport(); return; }

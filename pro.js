@@ -97,10 +97,7 @@ let swallowPop=false;   // our own history.back() when closing the detector/shee
 addEventListener('popstate',e=>{
   if(swallowPop){ swallowPop=false; e.stopImmediatePropagation(); return; }
   if($('pro-sheet').classList.contains('open')){ closeSheet(true); return; }
-  if(open){   // back while on the detector: let it step back first (result → home), and leave only from its home
-    history.pushState({proCam:true},'');
-    if(frame&&ready) frame.contentWindow.postMessage({type:'tlpro-back'},location.origin); else closeCam();
-  }
+  if(open) closeCam(true);   // back on the detector → straight to the tracker (the detector keeps its screen for next time)
 });
 addEventListener('resize',()=>setPane(open?0:paneW(),false));
 addEventListener('message',e=>{
